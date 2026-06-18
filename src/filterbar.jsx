@@ -17,8 +17,6 @@ export default function FilterBar({
 
     onApprove,
     onReject,
-    onEdit,
-    editingCount,
 
     actionError,
     actionSuccess,
@@ -80,34 +78,6 @@ export default function FilterBar({
                     </Button>
 
                     <div className="w-px h-9 bg-[#e5e5e5] mx-1" />
-
-                    {/* Edit */}
-                    <button
-                        type="button"
-                        onClick={onEdit}
-                        disabled={!canAct || isActing}
-                        className={`flex items-center gap-1.5 px-4 h-10 text-[13px] font-semibold rounded-lg transition-all ${
-                            canAct && !isActing
-                                ? 'text-white bg-[#e76500] hover:bg-[#c45400]'
-                                : 'text-[#a8aaac] bg-[#e5e5e5] cursor-not-allowed'
-                        }`}
-                    >
-                        <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                        >
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/>
-                        </svg>
-
-                        {editingCount > 0
-                            ? `Editing (${editingCount})`
-                            : `Edit${countLabel}`}
-                    </button>
 
                     {/* Approve */}
                     <button
@@ -208,23 +178,6 @@ export default function FilterBar({
                         <path d="M12 8v4M12 16h.01" />
                     </svg>
                     {actionError}
-                </div>
-            )}
-
-            {editingCount > 0 && !actionError && (
-                <div className="mt-2.5 flex items-center gap-1.5 text-[12px] font-semibold text-[#e76500]">
-                    <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                    >
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 8v4M12 16h.01" />
-                    </svg>
-                    {editingCount} row{editingCount > 1 ? 's' : ''} in edit mode
                 </div>
             )}
         </div>

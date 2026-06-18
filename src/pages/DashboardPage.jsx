@@ -3,17 +3,19 @@ import FilterBar from '../filterbar'
 import DynamicTable from './../DynamicTable'
 import { fetchDashboard, postBulkAction } from '../lib/dashboardApi'
 
-
-
 export default function DashboardPage() {
-    
 
     const [customerCode, setCustomerCode] = useState('')
     const [materialDescription, setMaterialDescription] = useState('')
 
     const [dateColumns, setDateColumns] = useState([])
     const [allRows, setAllRows] = useState([])
-    const rows = useMemo(() => allRows, [allRows])
+
+    // User1 only sees rows the bot posted with no action taken yet
+    const rows = useMemo(
+        () => allRows.filter(r => r.status === '' && r.approve === ''),
+        [allRows]
+    )
 
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
@@ -26,11 +28,6 @@ export default function DashboardPage() {
     const [actionError, setActionError] = useState(null)
     const [actionSuccess, setActionSuccess] = useState(null)
 
-    const [editingRowIds, setEditingRowIds] = useState(new Set())
-    const [editValues, setEditValues] = useState({})
-
-
-
     const selectedCount = selectedRowIds.size
     const canAct = selectedCount > 0 && !isActing
 
@@ -40,8 +37,6 @@ export default function DashboardPage() {
         setActionError(null)
         setActionSuccess(null)
         setSelectedRowIds(new Set())
-        setEditingRowIds(new Set())
-        setEditValues({})
         try {
             const data = await fetchDashboard({ customerCode, materialDescription })
             setDateColumns(data.dateColumns)
@@ -64,8 +59,6 @@ export default function DashboardPage() {
         setSelectedRowIds(new Set())
         setActionError(null)
         setActionSuccess(null)
-        setEditingRowIds(new Set())
-        setEditValues({})
     }
 
     const handleToggleRow = (rowId) => {
@@ -81,73 +74,14 @@ export default function DashboardPage() {
     const handleToggleAll = () => {
         setActionError(null)
         setActionSuccess(null)
-        const selectableIds = rows.filter(r => !editingRowIds.has(r.id)).map(r => r.id)
+        const selectableIds = rows.map(r => r.id)
         const allSelected = selectableIds.every(id => selectedRowIds.has(id))
         setSelectedRowIds(allSelected ? new Set() : new Set(selectableIds))
-    }
-
-    const handleEdit = () => {
-        const newEditingIds = new Set(editingRowIds)
-        const newEditValues = { ...editValues }
-        rows.forEach((r) => {
-            if (selectedRowIds.has(r.id)) {
-                newEditingIds.add(r.id)
-                if (!newEditValues[r.id]) newEditValues[r.id] = { ...r.values }
-            }
-        })
-        setEditingRowIds(newEditingIds)
-        setEditValues(newEditValues)
-        setSelectedRowIds((prev) => {
-            const next = new Set(prev)
-            rows.forEach(r => { if (selectedRowIds.has(r.id)) next.delete(r.id) })
-            return next
-        })
-    }
-
-    const handleEditCellChange = (rowId, colKey, value) => {
-        setEditValues((prev) => ({
-            ...prev,
-            [rowId]: { ...prev[rowId], [colKey]: value },
-        }))
-    }
-
-    // Commits edits locally into allRows (both values + dateLines), exits edit mode, re-selects row
-    const handleSaveRow = (rowId) => {
-        const edits = editValues[rowId] ?? {}
-        setAllRows((current) =>
-            current.map((r) => {
-                if (r.id !== rowId) return r
-                // Update values (display)
-                const newValues = { ...r.values, ...edits }
-                // Update dateLines (used by postBulkAction for Wmeng)
-                const newDateLines = { ...r.dateLines }
-                Object.entries(edits).forEach(([dateKey, val]) => {
-                    if (newDateLines[dateKey]) {
-                        newDateLines[dateKey] = { ...newDateLines[dateKey], wmeng: String(val) }
-                    }
-                })
-                return { ...r, values: newValues, dateLines: newDateLines }
-            })
-        )
-        setEditingRowIds((prev) => { const next = new Set(prev); next.delete(rowId); return next })
-        setSelectedRowIds((prev) => new Set([...prev, rowId]))
-        // Keep editValues — cleared after POST
-    }
-
-    const handleCancelRow = (rowId) => {
-        setEditingRowIds((prev) => { const next = new Set(prev); next.delete(rowId); return next })
-        setEditValues((prev) => { const next = { ...prev }; delete next[rowId]; return next })
     }
 
     const handleBulkAction = async (action) => {
         const targetRows = rows.filter(r => selectedRowIds.has(r.id))
         if (!targetRows.length) return
-
-        const stillEditing = targetRows.some(r => editingRowIds.has(r.id))
-        if (stillEditing) {
-            setActionError('Save or cancel open edits before approving.')
-            return
-        }
 
         setActionError(null)
         setActionSuccess(null)
@@ -155,13 +89,11 @@ export default function DashboardPage() {
         setPendingAction(action)
 
         try {
-            await postBulkAction({ rows: targetRows, action, editValues })
+            await postBulkAction({ rows: targetRows, action, editValues: {} })
 
             const actedIds = new Set(targetRows.map(r => r.id))
             setAllRows(prev => prev.filter(r => !actedIds.has(r.id)))
             setSelectedRowIds(prev => { const n = new Set(prev); actedIds.forEach(id => n.delete(id)); return n })
-            setEditValues(prev => { const n = { ...prev }; actedIds.forEach(id => delete n[id]); return n })
-            setEditingRowIds(prev => { const n = new Set(prev); actedIds.forEach(id => n.delete(id)); return n })
 
             setActionSuccess(
                 `${targetRows.length} row${targetRows.length > 1 ? 's' : ''} ${action === 'A' ? 'approved' : 'rejected'} successfully.`
@@ -192,9 +124,7 @@ export default function DashboardPage() {
 
                 onApprove={() => handleBulkAction('A')}
                 onReject={() => handleBulkAction('R')}
-                onEdit={handleEdit}
 
-                editingCount={editingRowIds.size}
                 actionError={actionError}
                 actionSuccess={actionSuccess}
             />
@@ -224,11 +154,6 @@ export default function DashboardPage() {
                             selectedRowIds={selectedRowIds}
                             onToggleRow={handleToggleRow}
                             onToggleAll={handleToggleAll}
-                            editingRowIds={editingRowIds}
-                            editValues={editValues}
-                            onEditCellChange={handleEditCellChange}
-                            onSaveRow={handleSaveRow}
-                            onCancelRow={handleCancelRow}
                         />
                     </div>
                 )}

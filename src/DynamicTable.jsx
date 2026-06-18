@@ -19,11 +19,6 @@ export default function DynamicTable({
   selectedRowIds,
   onToggleRow,
   onToggleAll,
-  editingRowIds,
-  editValues,
-  onEditCellChange,
-  onSaveRow,
-  onCancelRow,
 }) {
   const totalWidth =
     CHECKBOX_COL_WIDTH +
@@ -31,9 +26,7 @@ export default function DynamicTable({
     dateColumns.length * DATE_COL_WIDTH +
     STATUS_COL_WIDTH
 
-  const selectableIds = rows
-    .filter((r) => !editingRowIds.has(r.id))
-    .map((r) => r.id)
+  const selectableIds = rows.map((r) => r.id)
 
   const allSelected =
     selectableIds.length > 0 &&
@@ -110,29 +103,22 @@ export default function DynamicTable({
         <tbody>
           {rows.map((row) => {
             const isChecked = selectedRowIds.has(row.id)
-            const isEditing = editingRowIds.has(row.id)
-            const isSelectable = !isEditing
 
             return (
               <tr
                 key={row.id}
-                onClick={() => isSelectable && onToggleRow(row.id)}
-                className={`border-b border-[#f0f0f0] last:border-b-0 transition-colors duration-100 ${
-                  isEditing
-                    ? 'bg-[#fffbf5] cursor-default'
-                    : isChecked
-                    ? 'bg-[#ebf5ff] cursor-pointer'
-                    : 'hover:bg-[#fafbfc] cursor-pointer'
+                onClick={() => onToggleRow(row.id)}
+                className={`border-b border-[#f0f0f0] last:border-b-0 transition-colors duration-100 cursor-pointer ${
+                  isChecked ? 'bg-[#ebf5ff]' : 'hover:bg-[#fafbfc]'
                 }`}
               >
                 <td className="py-3 px-3 border-r border-[#f0f0f0] text-center">
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    disabled={!isSelectable}
                     onChange={() => onToggleRow(row.id)}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-4 h-4 accent-[#0a6ed1] cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
+                    className="w-4 h-4 accent-[#0a6ed1] cursor-pointer"
                   />
                 </td>
 
@@ -161,31 +147,14 @@ export default function DynamicTable({
                 </td>
 
                 {dateColumns.map((c) => {
-                  const cellVal = isEditing
-                    ? editValues[row.id]?.[c.key] ?? ''
-                    : row.values[c.key] ?? ''
+                  const cellVal = row.values[c.key] ?? ''
 
                   return (
                     <td
                       key={c.key}
                       className="py-3 px-3 border-r border-[#f0f0f0] text-right tabular-nums text-[#32363a]"
                     >
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          min="0"
-                          value={cellVal}
-                          onChange={(e) =>
-                            onEditCellChange(
-                              row.id,
-                              c.key,
-                              e.target.value
-                            )
-                          }
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full text-right text-[12px] border border-[#0a6ed1] rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#0a6ed1] bg-white tabular-nums"
-                        />
-                      ) : cellVal === '' || cellVal == null ? (
+                      {cellVal === '' || cellVal == null ? (
                         <span className="text-[#d9d9d9]">—</span>
                       ) : (
                         cellVal
@@ -195,30 +164,7 @@ export default function DynamicTable({
                 })}
 
                 <td className="py-3 px-3">
-                  {isEditing ? (
-                    <div
-                      className="flex gap-1.5"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() => onSaveRow(row.id)}
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded bg-[#107e3e] text-white hover:bg-[#0c632f]"
-                      >
-                        Save
-                      </button>
-
-                      <button
-                        onClick={() => onCancelRow(row.id)}
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded bg-white text-[#6a6d70] border border-[#e5e5e5] hover:border-[#0a6ed1]"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <StatusBadge
-                      status={row.approve === 'R' ? 'R' : row.status}
-                    />
-                  )}
+                  <StatusBadge status={row.approve === 'R' ? 'R' : row.status} />
                 </td>
               </tr>
             )
