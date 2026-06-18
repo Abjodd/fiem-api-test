@@ -1,21 +1,32 @@
 import { useState, useMemo } from 'react'
 import FilterBar from '../filterbar'
 import DynamicTable from './../DynamicTable'
-import { fetchDashboard, postBulkAction } from '../lib/dashboardApi'
+import { fetchDashboard, postBulkAction, fetchCustomerF4, fetchSalesDocF4, fetchMaterialF4, fetchPlantF4 } from '../lib/dashboardApi'
+
+const todayIso = () => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export default function DashboardPage() {
 
-    const [customerCode, setCustomerCode] = useState('')
-    const [materialDescription, setMaterialDescription] = useState('')
+    // ── F4 filter values ──
+    const [kunnr, setKunnr] = useState('')
+    const [vbeln, setVbeln] = useState('')
+    const [matnr, setMatnr] = useState('')
+    const [werks, setWerks] = useState('')
 
+    // ── Date range (frontend filter only) ──
+    const [dateFrom, setDateFrom] = useState('')
+    const [dateTo,   setDateTo]   = useState(todayIso())
+
+    // ── Value help modal ──
+    const [vhModal,   setVhModal]   = useState(null)   // 'kunnr' | 'vbeln' | 'matnr' | 'werks' | null
+    const [vhOptions, setVhOptions] = useState([])
+
+    // ── Data ──
     const [dateColumns, setDateColumns] = useState([])
     const [allRows, setAllRows] = useState([])
-
-    // User1 only sees rows the bot posted with no action taken yet
-    const rows = useMemo(
-        () => allRows.filter(r => r.status === '' && r.approve === ''),
-        [allRows]
-    )
 
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
@@ -28,9 +39,65 @@ export default function DashboardPage() {
     const [actionError, setActionError] = useState(null)
     const [actionSuccess, setActionSuccess] = useState(null)
 
+    // ── Derived rows: User1 visibility + date range client-side filter ──
+    const rows = useMemo(() => {
+        let filtered = allRows.filter(r => r.status === '' && r.approve === '')
+
+        // Date range filter: keep rows that have at least one dateLines entry within range
+        if (dateFrom || dateTo) {
+            filtered = filtered.filter(r => {
+                return Object.keys(r.dateLines).some(dateKey => {
+                    if (dateFrom && dateKey < dateFrom) return false
+                    if (dateTo   && dateKey > dateTo)   return false
+                    return true
+                })
+            })
+        }
+
+        return filtered
+    }, [allRows, dateFrom, dateTo])
+
+    // ── Filtered dateColumns: only show columns within the date range ──
+    const visibleDateColumns = useMemo(() => {
+        if (!dateFrom && !dateTo) return dateColumns
+        return dateColumns.filter(col => {
+            if (dateFrom && col.key < dateFrom) return false
+            if (dateTo   && col.key > dateTo)   return false
+            return true
+        })
+    }, [dateColumns, dateFrom, dateTo])
+
     const selectedCount = selectedRowIds.size
     const canAct = selectedCount > 0 && !isActing
 
+    // ── Open VH modal ──
+    const handleOpenVh = async (field) => {
+        setVhModal(field)
+        setVhOptions([])
+        try {
+            let opts = []
+            switch (field) {
+                case 'kunnr': opts = await fetchCustomerF4();  break
+                case 'vbeln': opts = await fetchSalesDocF4();  break
+                case 'matnr': opts = await fetchMaterialF4();  break
+                case 'werks': opts = await fetchPlantF4();     break
+                default:      opts = []
+            }
+            setVhOptions(opts)
+        } catch {
+            setVhOptions([])
+        }
+    }
+
+    const handleVhSelect = (opt) => {
+        const setters = { kunnr: setKunnr, vbeln: setVbeln, matnr: setMatnr, werks: setWerks }
+        setters[vhModal]?.(opt.code)
+        setVhModal(null)
+    }
+
+    const handleVhCancel = () => setVhModal(null)
+
+    // ── Go ──
     const handleGo = async () => {
         setLoading(true)
         setError(null)
@@ -38,7 +105,7 @@ export default function DashboardPage() {
         setActionSuccess(null)
         setSelectedRowIds(new Set())
         try {
-            const data = await fetchDashboard({ customerCode, materialDescription })
+            const data = await fetchDashboard({ kunnr, vbeln, matnr, werks })
             setDateColumns(data.dateColumns)
             setAllRows(data.rows)
             setHasSearched(true)
@@ -49,16 +116,14 @@ export default function DashboardPage() {
         }
     }
 
+    // ── Clear ──
     const handleClear = () => {
-        setCustomerCode('')
-        setMaterialDescription('')
-        setDateColumns([])
-        setAllRows([])
-        setHasSearched(false)
-        setError(null)
+        setKunnr(''); setVbeln(''); setMatnr(''); setWerks('')
+        setDateFrom(''); setDateTo(todayIso())
+        setDateColumns([]); setAllRows([])
+        setHasSearched(false); setError(null)
         setSelectedRowIds(new Set())
-        setActionError(null)
-        setActionSuccess(null)
+        setActionError(null); setActionSuccess(null)
     }
 
     const handleToggleRow = (rowId) => {
@@ -109,10 +174,20 @@ export default function DashboardPage() {
     return (
         <main className="flex flex-col bg-white flex-1">
             <FilterBar
-                customerCode={customerCode}
-                onCustomerCodeChange={setCustomerCode}
-                materialDescription={materialDescription}
-                onMaterialDescriptionChange={setMaterialDescription}
+                kunnr={kunnr} onKunnrChange={setKunnr}
+                vbeln={vbeln} onVbelnChange={setVbeln}
+                matnr={matnr} onMatnrChange={setMatnr}
+                werks={werks} onWerksChange={setWerks}
+
+                dateFrom={dateFrom} onDateFromChange={setDateFrom}
+                dateTo={dateTo}     onDateToChange={setDateTo}
+
+                vhModal={vhModal}
+                vhOptions={vhOptions}
+                onOpenVh={handleOpenVh}
+                onVhSelect={handleVhSelect}
+                onVhCancel={handleVhCancel}
+
                 onGo={handleGo}
                 onClear={handleClear}
                 loading={loading}
@@ -134,7 +209,7 @@ export default function DashboardPage() {
                     <div className="flex-1 flex items-center justify-center text-center text-[#6a6d70]">
                         <div>
                             <div className="text-[15px] font-semibold mb-1">No data loaded</div>
-                            <div className="text-[13px]">Enter a customer code and click <strong>Go</strong></div>
+                            <div className="text-[13px]">Select a customer and click <strong>Go</strong></div>
                         </div>
                     </div>
                 ) : loading ? (
@@ -149,7 +224,7 @@ export default function DashboardPage() {
                 ) : (
                     <div className="rounded-xl border border-[#e5e5e5] shadow-sm overflow-hidden flex flex-col flex-1" style={{ minHeight: 0 }}>
                         <DynamicTable
-                            dateColumns={dateColumns}
+                            dateColumns={visibleDateColumns}
                             rows={rows}
                             selectedRowIds={selectedRowIds}
                             onToggleRow={handleToggleRow}
