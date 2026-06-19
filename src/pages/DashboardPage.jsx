@@ -2,13 +2,25 @@ import { useState, useMemo } from 'react'
 import FilterBar from '../filterbar'
 import DynamicTable from './../DynamicTable'
 import { fetchDashboard, postBulkAction, fetchCustomerF4, fetchSalesDocF4, fetchMaterialF4, fetchPlantF4 } from '../lib/dashboardApi'
+import { useUser } from '../context/userContext'   // ← NEW
 
 const todayIso = () => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Maps SAP userName → userKey sent in GET filter
+// "10001" → 'A'  (User 1: approve / reject)
+// "10017" → 'B'  (User 2: edit + approve)
+// Extend this map if more users are added
+const LOGIN_TO_USERKEY = {
+    '10001': 'A',
+    '10017': 'B',
+}
+
 export default function DashboardPage() {
+    const { loginName } = useUser()                                    // ← NEW
+    const userKey = LOGIN_TO_USERKEY[loginName] ?? 'A'                 // ← NEW: default 'A' if unknown
 
     // ── F4 filter values ──
     const [kunnr, setKunnr] = useState('')
@@ -21,32 +33,33 @@ export default function DashboardPage() {
     const [dateTo,   setDateTo]   = useState(todayIso())
 
     // ── Value help modal ──
-    const [vhModal,   setVhModal]   = useState(null)   // 'kunnr' | 'vbeln' | 'matnr' | 'werks' | null
+    const [vhModal,   setVhModal]   = useState(null)
     const [vhOptions, setVhOptions] = useState([])
 
     // ── Data ──
     const [dateColumns, setDateColumns] = useState([])
-    const [allRows, setAllRows] = useState([])
+    const [allRows,     setAllRows]     = useState([])
 
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState(null)
+    const [loading,     setLoading]     = useState(false)
+    const [error,       setError]       = useState(null)
     const [hasSearched, setHasSearched] = useState(false)
 
     const [selectedRowIds, setSelectedRowIds] = useState(new Set())
 
-    const [isActing, setIsActing] = useState(false)
+    const [isActing,      setIsActing]      = useState(false)
     const [pendingAction, setPendingAction] = useState(null)
-    const [actionError, setActionError] = useState(null)
+    const [actionError,   setActionError]   = useState(null)
     const [actionSuccess, setActionSuccess] = useState(null)
 
-    // ── Derived rows: User1 visibility + date range client-side filter ──
+    // ── Derived rows: status/approve filter + date range client-side filter ──
     const rows = useMemo(() => {
         let filtered = allRows.filter(r => r.status === '' && r.approve === '')
 
-        // Date range filter: keep rows that have at least one dateLines entry within range
         if (dateFrom || dateTo) {
             filtered = filtered.filter(r => {
-                return Object.keys(r.dateLines).some(dateKey => {
+                const dateKeys = Object.keys(r.dateLines)
+                if (dateKeys.length === 0) return true
+                return dateKeys.some(dateKey => {
                     if (dateFrom && dateKey < dateFrom) return false
                     if (dateTo   && dateKey > dateTo)   return false
                     return true
@@ -68,7 +81,7 @@ export default function DashboardPage() {
     }, [dateColumns, dateFrom, dateTo])
 
     const selectedCount = selectedRowIds.size
-    const canAct = selectedCount > 0 && !isActing
+    const canAct        = selectedCount > 0 && !isActing
 
     // ── Open VH modal ──
     const handleOpenVh = async (field) => {
@@ -77,10 +90,10 @@ export default function DashboardPage() {
         try {
             let opts = []
             switch (field) {
-                case 'kunnr': opts = await fetchCustomerF4();  break
-                case 'vbeln': opts = await fetchSalesDocF4();  break
-                case 'matnr': opts = await fetchMaterialF4();  break
-                case 'werks': opts = await fetchPlantF4();     break
+                case 'kunnr': opts = await fetchCustomerF4(); break
+                case 'vbeln': opts = await fetchSalesDocF4(); break
+                case 'matnr': opts = await fetchMaterialF4(); break
+                case 'werks': opts = await fetchPlantF4();    break
                 default:      opts = []
             }
             setVhOptions(opts)
@@ -97,7 +110,7 @@ export default function DashboardPage() {
 
     const handleVhCancel = () => setVhModal(null)
 
-    // ── Go ──
+    // ── Go — passes userKey derived from loginName ──
     const handleGo = async () => {
         setLoading(true)
         setError(null)
@@ -105,7 +118,7 @@ export default function DashboardPage() {
         setActionSuccess(null)
         setSelectedRowIds(new Set())
         try {
-            const data = await fetchDashboard({ kunnr, vbeln, matnr, werks })
+            const data = await fetchDashboard({ kunnr, vbeln, matnr, werks, userKey })  // ← userKey added
             setDateColumns(data.dateColumns)
             setAllRows(data.rows)
             setHasSearched(true)
@@ -140,7 +153,7 @@ export default function DashboardPage() {
         setActionError(null)
         setActionSuccess(null)
         const selectableIds = rows.map(r => r.id)
-        const allSelected = selectableIds.every(id => selectedRowIds.has(id))
+        const allSelected   = selectableIds.every(id => selectedRowIds.has(id))
         setSelectedRowIds(allSelected ? new Set() : new Set(selectableIds))
     }
 

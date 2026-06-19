@@ -10,7 +10,6 @@ function parseSapDate(dateStr) {
     }
     const epochMatch = dateStr.match(/\/Date\((\d+)\)\//)
     if (epochMatch) return new Date(parseInt(epochMatch[1]))
-
     return null
 }
 
@@ -48,7 +47,7 @@ function mapSapResponse(results) {
                 cp:                  item.Ettyp   ?? '',
                 status:              item.Status  ?? '',
                 approve:             item.approve ?? '',
-                values: {},
+                values:    {},
                 dateLines: {},
             })
         }
@@ -73,7 +72,6 @@ function mapSapResponse(results) {
     return { dateColumns, rows }
 }
 
-// ── Helper ────────────────────────────────────────────────────
 const str = (v) => String(v ?? '').trim()
 
 async function odata(path) {
@@ -86,14 +84,17 @@ async function odata(path) {
     return res.json()
 }
 
-// ── Main fetch — 4 F4 params sent as OData filters ───────────
-export async function fetchDashboard({ kunnr, vbeln, matnr, werks } = {}) {
+// ── Main fetch ────────────────────────────────────────────────
+// userKey: 'A' for User 1 (loginName "10001"), 'B' for User 2 (loginName "10017")
+// Sent as Uname filter so backend returns only that user's relevant rows.
+export async function fetchDashboard({ kunnr, vbeln, matnr, werks, userKey = 'A' } = {}) {
     if (!kunnr?.trim()) throw new Error('Customer is required')
 
     const filters = [`Kunnr eq '${kunnr.trim()}'`]
     if (vbeln?.trim()) filters.push(`Vbeln eq '${vbeln.trim()}'`)
     if (matnr?.trim()) filters.push(`Matnr eq '${matnr.trim()}'`)
     if (werks?.trim()) filters.push(`Werks eq '${werks.trim()}'`)
+    filters.push(`type eq '${userKey}'`)
 
     const url = `${SRV}/itemSet?$filter=${encodeURIComponent(filters.join(' and '))}&$format=json`
     console.log('[fetchDashboard] GET', url)
@@ -114,7 +115,6 @@ export async function fetchDashboard({ kunnr, vbeln, matnr, werks } = {}) {
 
     return mapSapResponse(results)
 }
-
 // ── F4 Value Help fetchers ────────────────────────────────────
 
 export async function fetchCustomerF4() {
