@@ -1,7 +1,8 @@
 import DashboardPage from './pages/DashboardPage'
-
+import ProtectedRoute from './components/ProtectedRoute' 
 function App() {
   return (
+    <ProtectedRoute>
     <div className="min-h-screen bg-[#f5f6f7] flex flex-col">
       <header className="bg-white border-b border-[#e5e5e5] px-4 sm:px-6 lg:px-10 py-4">
         <h1 className="text-[18px] font-bold text-[#32363a]">Customer Schedule Dashboard — User 1</h1>
@@ -9,6 +10,7 @@ function App() {
 
       <DashboardPage />
     </div>
+      </ProtectedRoute>
   )
 }
 
