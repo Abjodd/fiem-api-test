@@ -108,9 +108,8 @@ export default function DynamicTable({
               <tr
                 key={row.id}
                 onClick={() => onToggleRow(row.id)}
-                className={`border-b border-[#f0f0f0] last:border-b-0 transition-colors duration-100 cursor-pointer ${
-                  isChecked ? 'bg-[#ebf5ff]' : 'hover:bg-[#fafbfc]'
-                }`}
+                className={`border-b border-[#f0f0f0] last:border-b-0 transition-colors duration-100 cursor-pointer ${isChecked ? 'bg-[#ebf5ff]' : 'hover:bg-[#fafbfc]'
+                  }`}
               >
                 <td className="py-3 px-3 border-r border-[#f0f0f0] text-center">
                   <input
@@ -147,14 +146,14 @@ export default function DynamicTable({
                 </td>
 
                 {dateColumns.map((c) => {
-                  const cellVal = row.values[c.key] ?? ''
+                  const cellVal = row.values[c.key]  // undefined/null = not present, 0 = explicit zero
 
                   return (
                     <td
                       key={c.key}
                       className="py-3 px-3 border-r border-[#f0f0f0] text-right tabular-nums text-[#32363a]"
                     >
-                      {cellVal === '' || cellVal == null ? (
+                      {cellVal == null ? (
                         <span className="text-[#d9d9d9]">—</span>
                       ) : (
                         cellVal

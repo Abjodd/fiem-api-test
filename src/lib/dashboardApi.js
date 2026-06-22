@@ -22,7 +22,7 @@ function formatDateKey(date) {
 }
 
 function mapSapResponse(results) {
-    const rowMap = new Map()
+    const rowMap     = new Map()
     const dateKeySet = new Map()
 
     results.forEach((item) => {
@@ -47,27 +47,35 @@ function mapSapResponse(results) {
                 cp:                  item.Ettyp   ?? '',
                 status:              item.Status  ?? '',
                 approve:             item.approve ?? '',
-                values:    {},
+                values:    {},   // null = not present for this date, number = explicit value (including 0)
                 dateLines: {},
             })
         }
 
         const date = parseSapDate(item.Edatu)
-        if (date) {
-            const key   = formatDateKey(date)
-            const label = formatDateLabel(date)
-            if (!dateKeySet.has(key)) dateKeySet.set(key, label)
-            rowMap.get(rowKey).values[key]    = parseFloat(item.Wmeng) || 0
-            rowMap.get(rowKey).dateLines[key] = {
-                edatu: item.Edatu,
-                wmeng: String(item.Wmeng ?? '0'),
-            }
+        // If date is null (00000000 or unparseable), skip this line entirely —
+        // don't add to values or dateLines, don't register the date column
+        if (!date) return
+
+        const key   = formatDateKey(date)
+        const label = formatDateLabel(date)
+        if (!dateKeySet.has(key)) dateKeySet.set(key, label)
+
+        // Store as number — parseFloat('0') = 0, parseFloat('100') = 100
+        // We use null to mean "no entry", so we explicitly store 0 when Wmeng is 0
+        const wmengNum = parseFloat(item.Wmeng)
+        rowMap.get(rowKey).values[key]    = isNaN(wmengNum) ? null : wmengNum
+        rowMap.get(rowKey).dateLines[key] = {
+            edatu: item.Edatu,
+            wmeng: String(item.Wmeng ?? '0'),
         }
     })
 
     const sortedDateKeys = [...dateKeySet.keys()].sort()
     const dateColumns    = sortedDateKeys.map((key) => ({ key, label: dateKeySet.get(key) }))
-    const rows           = [...rowMap.values()]
+
+    // Exclude rows that ended up with no valid date lines at all
+    const rows = [...rowMap.values()].filter(r => Object.keys(r.dateLines).length > 0)
 
     return { dateColumns, rows }
 }

@@ -53,22 +53,24 @@ export default function DashboardPage() {
 
     // ── Derived rows: status/approve filter + date range client-side filter ──
     const rows = useMemo(() => {
-        let filtered = allRows.filter(r => r.status === '' && r.approve === '')
+    // Role filter: User 1 sees status='' and approve=''
+    let filtered = allRows.filter(r => r.status === '' && r.approve === '')
 
-        if (dateFrom || dateTo) {
-            filtered = filtered.filter(r => {
-                const dateKeys = Object.keys(r.dateLines)
-                if (dateKeys.length === 0) return true
-                return dateKeys.some(dateKey => {
-                    if (dateFrom && dateKey < dateFrom) return false
-                    if (dateTo   && dateKey > dateTo)   return false
-                    return true
-                })
+    // Date range client-side filter
+    if (dateFrom || dateTo) {
+        filtered = filtered.filter(r => {
+            const dateKeys = Object.keys(r.dateLines)
+            if (dateKeys.length === 0) return false  // no valid dates → hide
+            return dateKeys.some(dateKey => {
+                if (dateFrom && dateKey < dateFrom) return false
+                if (dateTo   && dateKey > dateTo)   return false
+                return true
             })
-        }
+        })
+    }
 
-        return filtered
-    }, [allRows, dateFrom, dateTo])
+    return filtered
+}, [allRows, dateFrom, dateTo])
 
     // ── Filtered dateColumns: only show columns within the date range ──
     const visibleDateColumns = useMemo(() => {
