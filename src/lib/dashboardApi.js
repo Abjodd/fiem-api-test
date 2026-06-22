@@ -95,13 +95,24 @@ async function odata(path) {
 // ── Main fetch ────────────────────────────────────────────────
 // userKey: 'A' for User 1 (loginName "10001"), 'B' for User 2 (loginName "10017")
 // Sent as Uname filter so backend returns only that user's relevant rows.
-export async function fetchDashboard({ kunnr, vbeln, matnr, werks, userKey = 'A' } = {}) {
-    if (!kunnr?.trim()) throw new Error('Customer is required')
+export async function fetchDashboard({ kunnr = [], vbeln = [], matnr = [], werks = [], userKey = 'A' } = {}) {
+    if (!kunnr.length) throw new Error('Customer is required')
 
-    const filters = [`Kunnr eq '${kunnr.trim()}'`]
-    if (vbeln?.trim()) filters.push(`Vbeln eq '${vbeln.trim()}'`)
-    if (matnr?.trim()) filters.push(`Matnr eq '${matnr.trim()}'`)
-    if (werks?.trim()) filters.push(`Werks eq '${werks.trim()}'`)
+    // Build OR group for multi-value arrays: (Kunnr eq 'X' or Kunnr eq 'Y')
+    const orGroup = (field, values) => {
+        if (!values.length) return null
+        if (values.length === 1) return `${field} eq '${values[0]}'`
+        return `(${values.map(v => `${field} eq '${v}'`).join(' or ')})`
+    }
+
+    const filters = []
+    filters.push(orGroup('Kunnr', kunnr))
+    const vbelnGroup = orGroup('Vbeln', vbeln)
+    if (vbelnGroup) filters.push(vbelnGroup)
+    const matnrGroup = orGroup('Matnr', matnr)
+    if (matnrGroup) filters.push(matnrGroup)
+    const werksGroup = orGroup('Werks', werks)
+    if (werksGroup) filters.push(werksGroup)
     filters.push(`type eq '${userKey}'`)
 
     const url = `${SRV}/itemSet?$filter=${encodeURIComponent(filters.join(' and '))}&$format=json`

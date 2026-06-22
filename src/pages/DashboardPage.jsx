@@ -1,253 +1,235 @@
-import { useState, useMemo } from 'react'
-import FilterBar from '../filterbar'
-import DynamicTable from './../DynamicTable'
-import { fetchDashboard, postBulkAction, fetchCustomerF4, fetchSalesDocF4, fetchMaterialF4, fetchPlantF4 } from '../lib/dashboardApi'
-import { useUser } from '../context/userContext'   // ← NEW
+const SRV = '/sap/opu/odata/SAP/ZSALES_SCHEDULE_SRV'
 
-const todayIso = () => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+function parseSapDate(dateStr) {
+    if (!dateStr) return null
+    const yyyymmdd = dateStr.match(/^(\d{4})(\d{2})(\d{2})$/)
+    if (yyyymmdd) {
+        const [, year, month, day] = yyyymmdd
+        if (dateStr === '00000000') return null
+        return new Date(Number(year), Number(month) - 1, Number(day))
+    }
+    const epochMatch = dateStr.match(/\/Date\((\d+)\)\//)
+    if (epochMatch) return new Date(parseInt(epochMatch[1]))
+    return null
 }
 
-// Maps SAP userName → userKey sent in GET filter
-// "10001" → 'A'  (User 1: approve / reject)
-// "10017" → 'B'  (User 2: edit + approve)
-// Extend this map if more users are added
-const LOGIN_TO_USERKEY = {
-    '10001': 'A',
-    '10017': 'B',
+function formatDateLabel(date) {
+    return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
 }
 
-export default function DashboardPage() {
-    const { loginName } = useUser()                                    // ← NEW
-    const userKey = LOGIN_TO_USERKEY[loginName] ?? 'A'                 // ← NEW: default 'A' if unknown
+function formatDateKey(date) {
+    return date.toISOString().split('T')[0]
+}
 
-    // ── F4 filter values ──
-    const [kunnr, setKunnr] = useState('')
-    const [vbeln, setVbeln] = useState('')
-    const [matnr, setMatnr] = useState('')
-    const [werks, setWerks] = useState('')
+function mapSapResponse(results) {
+    const rowMap     = new Map()
+    const dateKeySet = new Map()
 
-    // ── Date range (frontend filter only) ──
-    const [dateFrom, setDateFrom] = useState('')
-    const [dateTo,   setDateTo]   = useState(todayIso())
+    results.forEach((item) => {
+        const rowKey = `${item.Kunnr}|${item.Vbeln}|${item.Posnr}|${item.Matnr}`
 
-    // ── Value help modal ──
-    const [vhModal,   setVhModal]   = useState(null)
-    const [vhOptions, setVhOptions] = useState([])
+        if (!rowMap.has(rowKey)) {
+            rowMap.set(rowKey, {
+                id:                  rowKey,
+                kunnr:               item.Kunnr   ?? '',
+                vbeln:               item.Vbeln   ?? '',
+                posnr:               item.Posnr   ?? '',
+                matnr:               item.Matnr   ?? '',
+                postx:               item.Postx   ?? '',
+                werks:               item.Werks   ?? '',
+                ettyp:               item.Ettyp   ?? '',
+                edatu:               item.Edatu   ?? '',
+                so:                  item.Vbeln   ?? '',
+                li:                  item.Posnr   ?? '',
+                sap:                 item.Matnr   ?? '',
+                materialDescription: item.Postx   ?? '',
+                plt:                 item.Werks   ?? '',
+                cp:                  item.Ettyp   ?? '',
+                status:              item.Status  ?? '',
+                approve:             item.approve ?? '',
+                values:    {},   // null = not present for this date, number = explicit value (including 0)
+                dateLines: {},
+            })
+        }
 
-    // ── Data ──
-    const [dateColumns, setDateColumns] = useState([])
-    const [allRows,     setAllRows]     = useState([])
+        const date = parseSapDate(item.Edatu)
+        // If date is null (00000000 or unparseable), skip this line entirely —
+        // don't add to values or dateLines, don't register the date column
+        if (!date) return
 
-    const [loading,     setLoading]     = useState(false)
-    const [error,       setError]       = useState(null)
-    const [hasSearched, setHasSearched] = useState(false)
+        const key   = formatDateKey(date)
+        const label = formatDateLabel(date)
+        if (!dateKeySet.has(key)) dateKeySet.set(key, label)
 
-    const [selectedRowIds, setSelectedRowIds] = useState(new Set())
+        // Store as number — parseFloat('0') = 0, parseFloat('100') = 100
+        // We use null to mean "no entry", so we explicitly store 0 when Wmeng is 0
+        const wmengNum = parseFloat(item.Wmeng)
+        rowMap.get(rowKey).values[key]    = isNaN(wmengNum) ? null : wmengNum
+        rowMap.get(rowKey).dateLines[key] = {
+            edatu: item.Edatu,
+            wmeng: String(item.Wmeng ?? '0'),
+        }
+    })
 
-    const [isActing,      setIsActing]      = useState(false)
-    const [pendingAction, setPendingAction] = useState(null)
-    const [actionError,   setActionError]   = useState(null)
-    const [actionSuccess, setActionSuccess] = useState(null)
+    const sortedDateKeys = [...dateKeySet.keys()].sort()
+    const dateColumns    = sortedDateKeys.map((key) => ({ key, label: dateKeySet.get(key) }))
 
-    // ── Derived rows: status/approve filter + date range client-side filter ──
-    const rows = useMemo(() => {
-    // Role filter: User 1 sees status='' and approve=''
-    let filtered = allRows.filter(r => r.status === '' && r.approve === '')
+    // Exclude rows that ended up with no valid date lines at all
+    const rows = [...rowMap.values()].filter(r => Object.keys(r.dateLines).length > 0)
 
-    // Date range client-side filter
-    if (dateFrom || dateTo) {
-        filtered = filtered.filter(r => {
-            const dateKeys = Object.keys(r.dateLines)
-            if (dateKeys.length === 0) return false  // no valid dates → hide
-            return dateKeys.some(dateKey => {
-                if (dateFrom && dateKey < dateFrom) return false
-                if (dateTo   && dateKey > dateTo)   return false
-                return true
+    return { dateColumns, rows }
+}
+
+const str = (v) => String(v ?? '').trim()
+
+async function odata(path) {
+    const res = await fetch(`${SRV}${path}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'include',
+    })
+    if (!res.ok) throw new Error(`SAP returned ${res.status} — ${res.statusText}`)
+    return res.json()
+}
+
+// ── Main fetch ────────────────────────────────────────────────
+// userKey: 'A' for User 1 (loginName "10001"), 'B' for User 2 (loginName "10017")
+// Sent as Uname filter so backend returns only that user's relevant rows.
+export async function fetchDashboard({ kunnr = [], vbeln = [], matnr = [], werks = [], userKey = 'A' } = {}) {
+    if (!kunnr.length) throw new Error('Customer is required')
+
+    // Build OR group for multi-value arrays: (Kunnr eq 'X' or Kunnr eq 'Y')
+    const orGroup = (field, values) => {
+        if (!values.length) return null
+        if (values.length === 1) return `${field} eq '${values[0]}'`
+        return `(${values.map(v => `${field} eq '${v}'`).join(' or ')})`
+    }
+
+    const filters = []
+    filters.push(orGroup('Kunnr', kunnr))
+    const vbelnGroup = orGroup('Vbeln', vbeln)
+    if (vbelnGroup) filters.push(vbelnGroup)
+    const matnrGroup = orGroup('Matnr', matnr)
+    if (matnrGroup) filters.push(matnrGroup)
+    const werksGroup = orGroup('Werks', werks)
+    if (werksGroup) filters.push(werksGroup)
+    filters.push(`type eq '${userKey}'`)
+
+    const url = `${SRV}/itemSet?$filter=${encodeURIComponent(filters.join(' and '))}&$format=json`
+    console.log('[fetchDashboard] GET', url)
+
+    const res = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'include',
+    })
+
+    if (!res.ok) throw new Error(`SAP returned ${res.status} — ${res.statusText}`)
+
+    const data    = await res.json()
+    const results = data?.d?.results ?? []
+
+    console.log('[fetchDashboard] raw count:', results.length)
+    console.log('[fetchDashboard] sample:', results[0])
+
+    return mapSapResponse(results)
+}
+// ── F4 Value Help fetchers ────────────────────────────────────
+
+export async function fetchCustomerF4() {
+    const data = await odata('/CustomerF4Set?$format=json')
+    return (data?.d?.results ?? []).map(r => ({
+        code:  str(r.KUNNR),
+        label: str(r.NAME),
+    }))
+}
+
+export async function fetchSalesDocF4() {
+    const data = await odata('/SalesDocumentF4Set?$format=json')
+    return (data?.d?.results ?? []).map(r => ({
+        code:  str(r.VBELN),
+        label: '',
+    }))
+}
+
+export async function fetchMaterialF4() {
+    const data = await odata('/MaterialF4Set?$format=json')
+    return (data?.d?.results ?? []).map(r => ({
+        code:  str(r.MATNR),
+        label: '',
+    }))
+}
+
+export async function fetchPlantF4() {
+    const data = await odata('/PlantF4Set?$format=json')
+    return (data?.d?.results ?? []).map(r => ({
+        code:  str(r.WERKS),
+        label: '',
+    }))
+}
+
+// ── CSRF token ────────────────────────────────────────────────
+async function getCsrfToken() {
+    const res = await fetch(`${SRV}/itemSet?$top=0`, {
+        method: 'GET',
+        headers: { 'x-csrf-token': 'Fetch', Accept: 'application/json' },
+        credentials: 'include',
+    })
+    const token = res.headers.get('x-csrf-token')
+    if (!token) throw new Error('Could not retrieve CSRF token from SAP')
+    return token
+}
+
+// ── Deep-entity POST to headerSet ─────────────────────────────
+export async function postBulkAction({ rows, action, editValues = {} }) {
+    const csrfToken = await getCsrfToken()
+
+    const itemSet = []
+
+    rows.forEach((row) => {
+        const edited = editValues[row.id]
+
+        Object.entries(row.dateLines).forEach(([dateKey, line]) => {
+            const wmeng = (edited && edited[dateKey] !== undefined && edited[dateKey] !== '')
+                ? String(edited[dateKey])
+                : line.wmeng
+
+            itemSet.push({
+                Vbeln:   row.vbeln,
+                Posnr:   row.posnr,
+                Matnr:   row.matnr,
+                Postx:   row.postx,
+                Werks:   row.werks,
+                Ettyp:   row.ettyp,
+                Kunnr:   row.kunnr,
+                Edatu:   line.edatu,
+                Wmeng:   wmeng,
+                Status:  '',
+                approve: action,
             })
         })
+    })
+
+    const payload = { Vbeln: '', itemSet }
+
+    console.log('[postBulkAction] POST to headerSet:', JSON.stringify(payload, null, 2))
+
+    const res = await fetch(`${SRV}/headerSet`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept:         'application/json',
+            'x-csrf-token': csrfToken,
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+    })
+
+    if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`SAP POST failed — ${res.status} : ${text.slice(0, 400)}`)
     }
 
-    return filtered
-}, [allRows, dateFrom, dateTo])
-
-    // ── Filtered dateColumns: only show columns within the date range ──
-    const visibleDateColumns = useMemo(() => {
-        if (!dateFrom && !dateTo) return dateColumns
-        return dateColumns.filter(col => {
-            if (dateFrom && col.key < dateFrom) return false
-            if (dateTo   && col.key > dateTo)   return false
-            return true
-        })
-    }, [dateColumns, dateFrom, dateTo])
-
-    const selectedCount = selectedRowIds.size
-    const canAct        = selectedCount > 0 && !isActing
-
-    // ── Open VH modal ──
-    const handleOpenVh = async (field) => {
-        setVhModal(field)
-        setVhOptions([])
-        try {
-            let opts = []
-            switch (field) {
-                case 'kunnr': opts = await fetchCustomerF4(); break
-                case 'vbeln': opts = await fetchSalesDocF4(); break
-                case 'matnr': opts = await fetchMaterialF4(); break
-                case 'werks': opts = await fetchPlantF4();    break
-                default:      opts = []
-            }
-            setVhOptions(opts)
-        } catch {
-            setVhOptions([])
-        }
-    }
-
-    const handleVhSelect = (opt) => {
-        const setters = { kunnr: setKunnr, vbeln: setVbeln, matnr: setMatnr, werks: setWerks }
-        setters[vhModal]?.(opt.code)
-        setVhModal(null)
-    }
-
-    const handleVhCancel = () => setVhModal(null)
-
-    // ── Go — passes userKey derived from loginName ──
-    const handleGo = async () => {
-        setLoading(true)
-        setError(null)
-        setActionError(null)
-        setActionSuccess(null)
-        setSelectedRowIds(new Set())
-        try {
-            const data = await fetchDashboard({ kunnr, vbeln, matnr, werks, userKey })  // ← userKey added
-            setDateColumns(data.dateColumns)
-            setAllRows(data.rows)
-            setHasSearched(true)
-        } catch (err) {
-            setError(err.message || 'Failed to fetch data')
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    // ── Clear ──
-    const handleClear = () => {
-        setKunnr(''); setVbeln(''); setMatnr(''); setWerks('')
-        setDateFrom(''); setDateTo(todayIso())
-        setDateColumns([]); setAllRows([])
-        setHasSearched(false); setError(null)
-        setSelectedRowIds(new Set())
-        setActionError(null); setActionSuccess(null)
-    }
-
-    const handleToggleRow = (rowId) => {
-        setActionError(null)
-        setActionSuccess(null)
-        setSelectedRowIds((prev) => {
-            const next = new Set(prev)
-            next.has(rowId) ? next.delete(rowId) : next.add(rowId)
-            return next
-        })
-    }
-
-    const handleToggleAll = () => {
-        setActionError(null)
-        setActionSuccess(null)
-        const selectableIds = rows.map(r => r.id)
-        const allSelected   = selectableIds.every(id => selectedRowIds.has(id))
-        setSelectedRowIds(allSelected ? new Set() : new Set(selectableIds))
-    }
-
-    const handleBulkAction = async (action) => {
-        const targetRows = rows.filter(r => selectedRowIds.has(r.id))
-        if (!targetRows.length) return
-
-        setActionError(null)
-        setActionSuccess(null)
-        setIsActing(true)
-        setPendingAction(action)
-
-        try {
-            await postBulkAction({ rows: targetRows, action, editValues: {} })
-
-            const actedIds = new Set(targetRows.map(r => r.id))
-            setAllRows(prev => prev.filter(r => !actedIds.has(r.id)))
-            setSelectedRowIds(prev => { const n = new Set(prev); actedIds.forEach(id => n.delete(id)); return n })
-
-            setActionSuccess(
-                `${targetRows.length} row${targetRows.length > 1 ? 's' : ''} ${action === 'A' ? 'approved' : 'rejected'} successfully.`
-            )
-        } catch (err) {
-            setActionError(err.message || 'Action failed — please try again.')
-        } finally {
-            setIsActing(false)
-            setPendingAction(null)
-        }
-    }
-
-    return (
-        <main className="flex flex-col bg-white flex-1">
-            <FilterBar
-                kunnr={kunnr} onKunnrChange={setKunnr}
-                vbeln={vbeln} onVbelnChange={setVbeln}
-                matnr={matnr} onMatnrChange={setMatnr}
-                werks={werks} onWerksChange={setWerks}
-
-                dateFrom={dateFrom} onDateFromChange={setDateFrom}
-                dateTo={dateTo}     onDateToChange={setDateTo}
-
-                vhModal={vhModal}
-                vhOptions={vhOptions}
-                onOpenVh={handleOpenVh}
-                onVhSelect={handleVhSelect}
-                onVhCancel={handleVhCancel}
-
-                onGo={handleGo}
-                onClear={handleClear}
-                loading={loading}
-
-                selectedCount={selectedCount}
-                canAct={canAct}
-                isActing={isActing}
-                pendingAction={pendingAction}
-
-                onApprove={() => handleBulkAction('A')}
-                onReject={() => handleBulkAction('R')}
-
-                actionError={actionError}
-                actionSuccess={actionSuccess}
-            />
-
-            <div className="flex-1 flex flex-col overflow-hidden px-4 sm:px-6 lg:px-10 pt-3 pb-6 min-h-0">
-                {!hasSearched && !loading ? (
-                    <div className="flex-1 flex items-center justify-center text-center text-[#6a6d70]">
-                        <div>
-                            <div className="text-[15px] font-semibold mb-1">No data loaded</div>
-                            <div className="text-[13px]">Select a customer and click <strong>Go</strong></div>
-                        </div>
-                    </div>
-                ) : loading ? (
-                    <div className="flex-1 flex items-center justify-center gap-3 text-[#6a6d70]">
-                        <div className="w-8 h-8 border-2 border-[#e5e5e5] border-t-[#0a6ed1] rounded-full animate-spin" />
-                        <span className="text-[14px]">Fetching data…</span>
-                    </div>
-                ) : error ? (
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="px-4 py-3 bg-[#fce8e6] text-[#cc1c14] rounded-lg text-[13px]">{error}</div>
-                    </div>
-                ) : (
-                    <div className="rounded-xl border border-[#e5e5e5] shadow-sm overflow-hidden flex flex-col flex-1" style={{ minHeight: 0 }}>
-                        <DynamicTable
-                            dateColumns={visibleDateColumns}
-                            rows={rows}
-                            selectedRowIds={selectedRowIds}
-                            onToggleRow={handleToggleRow}
-                            onToggleAll={handleToggleAll}
-                        />
-                    </div>
-                )}
-            </div>
-        </main>
-    )
+    if (res.status === 204) return { success: true }
+    return res.json()
 }
