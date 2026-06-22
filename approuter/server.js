@@ -24,6 +24,7 @@ app.beforeRequestHandler.use("/scim-proxy", async (req, res) => {
               `${process.env.SCIM_USER}:${process.env.SCIM_PASSWORD}`
             ).toString("base64"),
         },
+        timeout: 8000,
       }
     );
 
@@ -46,13 +47,6 @@ app.beforeRequestHandler.use("/scim-proxy", async (req, res) => {
       );
       return;
     }
-    console.log(
-  "LOGIN:",
-  loginName,
-  "ALLOWED:",
-  process.env.ALLOWED_LOGIN_NAME
-);
-
     if (!loginName || loginName !== allowedLoginName) {
       res.statusCode = 403;
       res.setHeader("Content-Type", "application/json");

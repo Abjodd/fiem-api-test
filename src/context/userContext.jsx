@@ -8,7 +8,7 @@ export function UserProvider({ children }) {
   const [role, setRole] = useState(null);
   const [loginId, setLoginId] = useState("");
   const [loginType, setLoginType] = useState("");
-  const [loginName, setLoginName] = useState('')
+  const [loginName, setLoginName] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,7 +20,7 @@ export function UserProvider({ children }) {
 
         const id = userData.login_name?.[0] || "";
         const type = userData.type?.[0] || "";
-        const name = userData.login_name?.[0] || "";
+        const name = userData.login_name?.[0]  || "";
 
         const sapLoginType =
           type === "employee" ? "E" : "P";
@@ -33,11 +33,12 @@ export function UserProvider({ children }) {
         setUser(userData);
         setRole(userRole);
         setLoginId(id);
-        setLoginType(sapLoginType);
+        setLoginType(sapLoginType)
         setLoginName(name);
 
         // Authorization is already handled in server.js
         setAuthorized(true);
+        sessionStorage.removeItem('auto_reloaded');   
       })
       .catch((err) => {
         console.error(
@@ -60,7 +61,7 @@ export function UserProvider({ children }) {
         role,
         loginId,
         loginType,
-        loginName, 
+        loginName,
         authorized,
         loading,
         error,
